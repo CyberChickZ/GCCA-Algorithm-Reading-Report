@@ -1,31 +1,33 @@
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
 from CCA import *
+from util import generate_synthetic_gcca_data  # Make sure your function filename matches
 
 # Set random seed
 np.random.seed(42)
 
 # Set parameters
-N = 10000  # Sample size
-d1, d2 = 200, 300  # Feature dimensions
+N = 20000  # Sample size
+d1, d2 = 200, 200  # Feature dimensions (already reduced)
+k = 100  # Shared latent factor dimension
+sparsity = 0.3  # Sparsity
 
-# Generate shared latent variables
-Z = np.random.randn(N, 100)  # 50-dimensional shared features
-X = Z @ np.random.randn(100, d1) + 0.1 * np.random.randn(N, d1)  # Related X
-Y = Z @ np.random.randn(100, d2) + 0.1 * np.random.randn(N, d2)  # Related Y
+# Generate synthetic data (X, Y, W)
+datasets = generate_synthetic_gcca_data(N=N, d1=d1, d2=d2, d3=200, k=k, sparsity=sparsity)
+X, Y, _ = datasets  # Ignore W here
 
-# Reduce dimensionality of Y to match X (200 dimensions)
-from sklearn.decomposition import PCA
-pca_Y = PCA(n_components=200)
-Y_200 = pca_Y.fit_transform(Y)  # Reduce dimensionality of Y
+# Convert sparse matrices to dense matrices
+X = X.toarray()
+Y = Y.toarray()
 
-# Generate unrelated Y1 (true random noise)
-Y1 = np.random.randn(N, d2)  # Completely unrelated Y1 data
+# Generate unrelated data Y1 (random noise)
+Y1 = np.random.randn(N, d2)  # As completely unrelated data
 
 # Perform CCA (100 dimensions)
 n_components = 100
-X_c, Y_c, A, B, corrs = cca(X, Y_200, n_components)  # CCA on related data
-X_c1, Y_c1, A1, B1, corrs1 = cca(X, Y1, n_components)  # CCA on unrelated data
+X_c, Y_c, A, B, corrs = cca(X, Y, n_components)  # Compute CCA between X and Y
+X_c1, Y_c1, A1, B1, corrs1 = cca(X, Y1, n_components)  # Compute CCA between X and Y1 (random data)
 
 # Visualize results
 indices = np.arange(1, n_components + 1)
@@ -38,6 +40,7 @@ plt.title("CCA Projection Correlation Comparison")
 plt.legend()
 plt.show()
 
-# Show first 3 correlations
+# Print first 3 correlation coefficients
 print("First 3 correlations of CCA projection (Correlated Data):", corrs[:3])
 print("First 3 correlations of CCA projection (Uncorrelated Data):", corrs1[:3])
+

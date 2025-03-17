@@ -2,37 +2,37 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.cross_decomposition import CCA
 from sklearn.decomposition import PCA
-from CCA import cca  # 你的自定义 CCA 实现
+from CCA import cca 
+from util import generate_synthetic_gcca_data
 
 # Set random seed
 np.random.seed(42)
 
 # Set parameters
-N = 10000  # Sample size
-d1, d2 = 200, 300  # Feature dimensions
+N = 2000  # Sample size
+d1, d2 = 200, 200  # Feature dimensions (already reduced)
+k = 100  # Shared latent factor dimension
+sparsity = 0.3  # Sparsity
 
-# Generate shared latent variables
-Z = np.random.randn(N, 100)  # 100-dimensional shared features
-X = Z @ np.random.randn(100, d1) + 0.1 * np.random.randn(N, d1)  # Related X
-Y = Z @ np.random.randn(100, d2) + 0.1 * np.random.randn(N, d2)  # Related Y
+# Generate synthetic data (X, Y, W)
+datasets = generate_synthetic_gcca_data(N=N, d1=d1, d2=d2, d3=200, k=k, sparsity=sparsity)
+X, Y, _ = datasets  # Ignore W here
 
-# Reduce dimensionality of Y to match X (200 dimensions)
-pca_Y = PCA(n_components=200)
-Y_200 = pca_Y.fit_transform(Y)  # Reduce dimensionality of Y
+# Convert sparse matrices to dense matrices
+X = X.toarray()
+Y = Y.toarray()
 
-# Generate unrelated Y1 (true random noise)
-Y1 = np.random.randn(N, d2)  # Completely unrelated Y1 data
-
-# Number of CCA components
-n_components = 100
+# Generate unrelated data Y1 (random noise)
+Y1 = np.random.randn(N, d2)  # As completely unrelated data
 
 # --- Perform CCA using your custom implementation ---
-X_c, Y_c, A, B, corrs = cca(X, Y_200, n_components)  # CCA on related data
+n_components = 100
+X_c, Y_c, A, B, corrs = cca(X, Y, n_components)  # CCA on related data
 X_c1, Y_c1, A1, B1, corrs1 = cca(X, Y1, n_components)  # CCA on unrelated data
 
 # --- Perform CCA using scikit-learn ---
-cca_sklearn = CCA(n_components=n_components)
-X_sklearn, Y_sklearn = cca_sklearn.fit_transform(X, Y_200)  # Fit on correlated data
+cca_sklearn = CCA(n_components=n_components, max_iter=20000)
+X_sklearn, Y_sklearn = cca_sklearn.fit_transform(X, Y)  # Fit on correlated data
 X_sklearn1, Y_sklearn1 = cca_sklearn.fit_transform(X, Y1)  # Fit on uncorrelated data
 
 # Compute correlation coefficients for sklearn CCA
