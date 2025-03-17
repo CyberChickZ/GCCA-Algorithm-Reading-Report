@@ -1,10 +1,12 @@
-# 忽略 node_modules 文件夹
-node_modules/
+# 忽略所有文件
+*
 
-# 忽略 logs 目录
-logs/
+# 允许 .py 文件
+!*.py
 
-# 忽略 macOS 生成的 .DS_Store 文件
-.DS_Store
+# 忽略 __pycache__ 目录
+__pycache__/
+!__pycache__/*.py  # 确保 Py 文件仍被追踪
 
-*.vec
+# 忽略 datasets 目录
+datasets/
