@@ -1,5 +1,4 @@
 ### **README.md**
-```markdown
 # GCCA Algorithm Reading Report
 
 ## Overview
@@ -35,8 +34,6 @@ The main goal is to **understand, implement, and experiment** with the **MaxVar-
 │── README.md             # Project documentation (this file)
 │── requirements.txt      # Dependencies for running the experiments
 ```
-
----
 
 ## 🔥 Experiments & Findings
 
@@ -94,7 +91,6 @@ jupyter notebook
 
 ## 🏆 Acknowledgments
 Thanks to **Xiao Fu, Kejun Huang, and co-authors** for their research work on GCCA. This project is my effort to better understand and reproduce their findings.
-```
 
 ---
 
@@ -106,3 +102,5 @@ Thanks to **Xiao Fu, Kejun Huang, and co-authors** for their research work on GC
 ✅ **未来工作**：可以扩展的研究方向  
 
 ---
+
+
