@@ -1,21 +1,21 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-from CCA import *
-from util import generate_synthetic_gcca_data  # Make sure your function filename matches
+from util import *  
+from CoreAlgorithm import *
 
 # Set random seed
 np.random.seed(42)
 
 # Set parameters
-N = 20000  # Sample size
+N = 10000  # Sample size
 d1, d2 = 200, 200  # Feature dimensions (already reduced)
 k = 100  # Shared latent factor dimension
-sparsity = 0.3  # Sparsity
+noise_std = 0.1  # Sparsity
 
 # Generate synthetic data (X, Y, W)
-datasets = generate_synthetic_gcca_data(N=N, d1=d1, d2=d2, d3=200, k=k, sparsity=sparsity)
-X, Y, _ = datasets  # Ignore W here
+datasets = generate_synthetic_gcca_data(N=N, I=2, d_list=[d1,d2], k=k, noise_std=noise_std)
+X, Y = datasets  # Ignore W here
 
 # Convert sparse matrices to dense matrices
 X = X.toarray()

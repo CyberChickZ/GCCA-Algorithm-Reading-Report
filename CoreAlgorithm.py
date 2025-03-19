@@ -4,58 +4,64 @@ import sys
 import time
 import tracemalloc  # Measure memory usage
 
-def gcca(datasets, n_components=50, tol=1e-4, max_iter=1000):
+def cca(X, Y, n_components):
     """
-    Generalized Canonical Correlation Analysis (GCCA)
-
-    Parameters:
-    - datasets: list of np.array [(N, d1), (N, d2), (N, d3), ...]
-      Each dataset corresponds to a different view.
-    - n_components: int, Number of GCCA components
-    - tol: float, Convergence tolerance
-    - max_iter: int, Maximum number of iterations
-
-    Returns:
-    - projections: list of np.array, projected data for each dataset
-    - transformation_matrices: list of np.array, transformation matrices A_i
-    - shared_representation: np.array, the shared representation G
-    """
+    Canonical Correlation Analysis (CCA) using SVD-based optimization.
     
-    num_views = len(datasets)  # Number of datasets
-    N = datasets[0].shape[0]  # Number of samples
-
+    Parameters:
+    X: np.array (N, d1) -> First dataset (samples × features)
+    Y: np.array (N, d2) -> Second dataset (samples × features)
+    n_components: int -> Number of CCA components
+    
+    Returns:
+    X_proj, Y_proj: Projected data
+    A, B: Projection matrices
+    corrs: Correlation coefficients
+    """
+    N = X.shape[0]  # Sample Size
+    
     # Center the data (zero mean)
-    centered_datasets = [X - np.mean(X, axis=0) for X in datasets]
+    X_c = X - np.mean(X, axis=0)
+    Y_c = Y - np.mean(Y, axis=0)
+    
+    # Compute covariance matrices (unbiased estimation)
+    Sigma_XX = (X_c.T @ X_c) / (N - 1)
+    Sigma_YY = (Y_c.T @ Y_c) / (N - 1)
+    Sigma_XY = (X_c.T @ Y_c) / (N - 1)
+    
+    # SVD for stability
+    Ux, sx, Vx = np.linalg.svd(Sigma_XX)
+    Uy, sy, Vy = np.linalg.svd(Sigma_YY)
+    
+    inv_Sigma_XX = Vx.T @ np.diag(1 / sx) @ Vx
+    inv_Sigma_YY = Vy.T @ np.diag(1 / sy) @ Vy
 
-    # Initialize projection matrices A_i
-    A_matrices = [np.random.randn(X.shape[1], n_components) for X in datasets]
+    # Solve the generalized eigenvalue problem
+    M = inv_Sigma_XX @ Sigma_XY @ inv_Sigma_YY @ Sigma_XY.T
+    eigvals, A = np.linalg.eigh(M)
+    
+    # Sort eigenvalues in descending order
+    idx = np.argsort(eigvals)[::-1]
+    A = A[:, idx[:n_components]]
+    
+    # Compute B from A
+    B = inv_Sigma_YY @ Sigma_XY.T @ A
+    B /= np.linalg.norm(B, axis=0, keepdims=True)  # Normalize B
+    
+    # Normalize X_c and Y_c
+    X_c /= np.std(X_c, axis=0, keepdims=True)
+    Y_c /= np.std(Y_c, axis=0, keepdims=True)
 
-    # Initialize G (shared representation)
-    G = np.random.randn(N, n_components)
+    # Project the data
+    X_proj = X_c @ A
+    Y_proj = Y_c @ B
 
-    for iteration in range(max_iter):
-        prev_G = G.copy()
+    # Compute correlation coefficients
+    corrs = [np.corrcoef(X_proj[:, i], Y_proj[:, i])[0, 1] for i in range(n_components)]
+    
+    return X_proj, Y_proj, A, B, corrs
 
-        # Step 1: Update each A_i
-        for i in range(num_views):
-            X_i = centered_datasets[i]
-            A_matrices[i] = np.linalg.pinv(X_i) @ G
-
-        # Step 2: Update shared representation G
-        sum_matrices = sum(X @ A for X, A in zip(centered_datasets, A_matrices))
-        G = sum_matrices / num_views
-
-        # Step 3: Check convergence
-        if np.linalg.norm(G - prev_G) < tol:
-            print(f"GCCA converged in {iteration} iterations")
-            break
-
-    # Compute final projected data
-    projections = [X @ A for X, A in zip(centered_datasets, A_matrices)]
-
-    return projections, A_matrices, G
-
-def gcca_convergence_plot(datasets, n_components=50, tol=1e-6, max_iter=2000):
+def gcca(datasets, n_components=50, tol=1e-6, max_iter=2000):
     num_views = len(datasets)
     N = datasets[0].shape[0]
 
@@ -105,6 +111,7 @@ def gcca_convergence_plot(datasets, n_components=50, tol=1e-6, max_iter=2000):
     print(f"\nGCCA Execution Time: {total_time:.4f} seconds")
     print(f"GCCA Peak Memory Usage: {max_memory:.2f} MB")
 
+    plt.ion
     # Plot the convergence curve
     plt.figure(figsize=(6, 4))
     plt.plot(norms, marker='o')

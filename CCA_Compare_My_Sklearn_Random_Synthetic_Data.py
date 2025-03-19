@@ -2,31 +2,36 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.cross_decomposition import CCA
 from sklearn.decomposition import PCA
-from CCA import cca 
-from util import generate_synthetic_gcca_data
+from util import *
+from CoreAlgorithm import *
 
 # Set random seed
 np.random.seed(42)
 
 # Set parameters
-N = 2000  # Sample size
+N = 1000  # Sample size
 d1, d2 = 200, 200  # Feature dimensions (already reduced)
 k = 100  # Shared latent factor dimension
-sparsity = 0.3  # Sparsity
+noise_std = 1  # noise cofactor
+outliers_noise_scale = -1 # active 30% outliers and scale is based on data enery
+# Generate synthetic data (X, Y)
+datasets = generate_synthetic_gcca_data(N=N, I=2, d_list=[d1,d2], k=k, noise_std=noise_std, outliers_noise_scale=outliers_noise_scale)
+X, Y = datasets
 
-# Generate synthetic data (X, Y, W)
-datasets = generate_synthetic_gcca_data(N=N, d1=d1, d2=d2, d3=200, k=k, sparsity=sparsity)
-X, Y, _ = datasets  # Ignore W here
 
-# Convert sparse matrices to dense matrices
-X = X.toarray()
-Y = Y.toarray()
+# # print matrix
+# print("X:\n")
+# np.savetxt(sys.stdout, X, fmt="%.4f", delimiter="\t")
+# print("\n\n Y:\n")
+# np.savetxt(sys.stdout, Y, fmt="%.4f", delimiter="\t")
+
+
 
 # Generate unrelated data Y1 (random noise)
 Y1 = np.random.randn(N, d2)  # As completely unrelated data
 
 # --- Perform CCA using your custom implementation ---
-n_components = 100
+n_components = 80
 X_c, Y_c, A, B, corrs = cca(X, Y, n_components)  # CCA on related data
 X_c1, Y_c1, A1, B1, corrs1 = cca(X, Y1, n_components)  # CCA on unrelated data
 

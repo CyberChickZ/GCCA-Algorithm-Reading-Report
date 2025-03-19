@@ -4,6 +4,7 @@ from scipy.spatial.distance import cdist
 import matplotlib.pyplot as plt
 import scipy.sparse as sp
 from sklearn.decomposition import PCA
+import sys
 
 def load_word_vectors(filepath, max_words=20000, expected_dim=300):
     """
@@ -89,82 +90,122 @@ def transform_and_find(word, en_words, fr_words, en_vectors, Y_c, transform_matr
 
     return fr_words[best_idx]
 
-
-
-def generate_synthetic_gcca_data(N=1000, d1=100, d2=100, d3=150, k=50, noise_std=0.1, sparsity=0.3):
+def generate_synthetic_gcca_data(N=1000, I=3, d_list=None, k=None, noise_std=0.1, sparsity_std=0, outliers_noise_scale = 0, result_in_dense=1):
     """
     Generate synthetic GCCA data conforming to the paper's settings
     
     Parameters:
-    - N: Sample size
-    - d1, d2, d3: Feature dimensions of three views
-    - k: Shared latent factor dimension (size of common low-dimensional space)
-    - noise_std: Noise standard deviation
-    - sparsity: Sparsity level (0~1), controls non-zero element ratio
-    
+    - N: Sample size (number of samples)
+    - I: Number of views (default 3, but can be up to 8)
+    - d_list: List of feature dimensions for each view
+    - k: Shared latent feature dimension
+    - noise_std: Standard deviation of noise
+
     Returns:
-    - datasets: [X, Y, W] three-view data matrices (sparse representation)
+    - X_list: List of sparse view matrices
     """
     
+    # Set default values based on paper's setup
+    if k is None:
+        k = min(60000, int(N * 0.6))  # Ensure k is large enough
+
+    if d_list is None:
+        if N < 1000:  # Small-scale test
+            d_list = [120, 120, 120]
+        else:  # Large-scale test
+            d_list = [80000, 80000, 80000]
+
     # Generate shared latent factor Z (N x k)
     Z = np.random.randn(N, k)
 
-    # Generate mixing matrices A_i (k x d_i)
-    A1 = np.random.randn(k, d1)
-    A2 = np.random.randn(k, d2)
-    A3 = np.random.randn(k, d3)
-
-    # Generate noise matrices N_i (N x d_i)
-    N1 = noise_std * np.random.randn(N, d1)
-    N2 = noise_std * np.random.randn(N, d2)
-    N3 = noise_std * np.random.randn(N, d3)
+    # Generate mixing matrices A_i (k x d_i) and noise matrices N_i (N x d_i)
+    A_list = [np.random.randn(k, d) for d in d_list]
+    print("A方差：")
+    print(A_list[0].mean(), A_list[0].std())
+    N_list = [noise_std * np.random.randn(N, d) for d in d_list]
 
     # Compute view data X_i = ZA_i + σN_i
-    X = Z @ A1 + N1  # (N x d1)
-    Y = Z @ A2 + N2  # (N x d2)
-    W = Z @ A3 + N3  # (N x d3)
+    X_list = [Z @ A + N for A, N in zip(A_list, N_list)]
 
-    # Apply sparsity using scipy.sparse
-    def apply_sparsity(matrix, sparsity):
-        mask = np.random.rand(*matrix.shape) < sparsity  # Generate sparse mask
-        sparse_matrix = sp.csr_matrix(matrix * mask)  # Convert to efficient CSR sparse format
-        return sparse_matrix
+    # Ensure 30% of the features are outliers (noise_scale <0: noise scale based on data energy) (noise_scale > 0 noise scale based on noise_scale)
+    if outliers_noise_scale != 0:
+        if outliers_noise_scale < 0:
+            X_final = [add_outliers(X, noise_scale=None) for X in X_list]
+        else:
+            X_final = [add_outliers(X, noise_scale=outliers_noise_scale) for X in X_list]
 
-    X_sparse = apply_sparsity(X, sparsity)
-    Y_sparse = apply_sparsity(Y, sparsity)
-    W_sparse = apply_sparsity(W, sparsity)
+    # Ensure sparsity level is consistent with the paper
+    if sparsity_std != 0:
+        print(f"Applying sparsity: {sparsity_std:.6f}")  # 确保 sparsity 在 1e-4 ~ 1e-3 之间
+        U, _ = X_final
+        X_final = [apply_sparsity(X, sparsity_std) for X in X_final]  # 施加正确的稀疏性
+        V, _ = X_final
+        print("what changed:")
+        np.savetxt("matrix_U-V.txt", U-V, fmt="%.4f")
+        np.savetxt("matrix_V.txt", V, fmt="%.4f")
+        np.savetxt("matrix_U.txt", U, fmt="%.4f")
+        
+    if result_in_dense == 1:
+        return X_final
+    else:
+        return [sp.csr_matrix(X) for X in X_final]
 
-    assert sp.issparse(X_sparse), "X_sparse is not a sparse matrix!"
-    assert sp.issparse(Y_sparse), "Y_sparse is not a sparse matrix!"
-    assert sp.issparse(W_sparse), "W_sparse is not a sparse matrix!"
+def add_outliers(X, outlier_feature_ratio=0.3, noise_scale=None):
 
-   # visual sparsity matrix
-    plt.figure(figsize=(12, 4))
+    X_noisy = X.copy()
+    num_samples, num_features = X.shape
 
-    plt.subplot(1, 3, 1)
-    plt.spy(X_sparse, markersize=0.5)
-    plt.title("X (View 1)")
+    # Select 30% of features as outlier features
+    num_outlier_features = int(outlier_feature_ratio * num_features)
+    outlier_feature_indices = np.random.choice(num_features, num_outlier_features, replace=False)
 
-    plt.subplot(1, 3, 2)
-    plt.spy(Y_sparse, markersize=0.5)
-    plt.title("Y (View 2)")
+    if noise_scale is None:
+        # Calculate the standard deviation of the original data as noise intensity
+        data_std = np.std(X)  
+        noise_scale = data_std  # Match noise energy with the original data
 
-    plt.subplot(1, 3, 3)
-    plt.spy(W_sparse, markersize=0.5)
-    plt.title("W (View 3)")
+    # Generate noise
+    noise = noise_scale * np.random.randn(num_samples, num_outlier_features)
 
-    plt.tight_layout()
-    plt.show()
+    # Replace selected outlier features
+    X_noisy[:, outlier_feature_indices] = noise
 
-    return [X_sparse, Y_sparse, W_sparse]
+    return X_noisy
 
-# # Generate synthetic data
-# datasets = generate_synthetic_gcca_data()
+def apply_sparsity(matrix, sparsity_std):
+    """
+    Apply strict sparsity to the input matrix:
+    - Set exactly `(1 - sparsity_std) × (N × d)` elements to `0`
+    - Only retain `sparsity_std × (N × d)` nonzero elements
+    - Always return a dense numpy.ndarray
+    """
 
-# # View data shape and sparsity
-# for i, data in enumerate(datasets):
-#     sparsity_ratio = data.nnz / (data.shape[0] * data.shape[1])  # Compute non-zero element ratio
-#     print(f"View {i+1} shape: {data.shape}, Nonzero elements: {sparsity_ratio:.4f}")
+    # Ensure sparsity_std is within the valid range [1e-4, 1e-3]
+    if not (1e-4 <= sparsity_std <= 1e-3):
+        sparsity_std = np.random.uniform(1e-4, 1e-3)
+
+    # Get matrix shape
+    N, d = matrix.shape
+
+    # Compute the total number of nonzero elements needed
+    num_nonzero_elements = int(sparsity_std * N * d)
+
+    # Flatten the matrix
+    matrix_flat = matrix.flatten()
+
+    # Set all elements to zero initially
+    matrix_flat[:] = 0  
+
+    # Randomly select `num_nonzero_elements` positions to remain nonzero
+    nonzero_indices = np.random.choice(matrix.size, size=num_nonzero_elements, replace=False)
+
+    # Assign random values back to those positions
+    matrix_flat[nonzero_indices] = np.random.randn(num_nonzero_elements)  
+
+    # Reshape back to the original shape
+    sparse_matrix = matrix_flat.reshape(N, d)
+
+    return sparse_matrix
 
 def plot_gcca_results(G, X_proj, Y_proj, W_proj):
     """
@@ -211,3 +252,17 @@ def plot_gcca_results(G, X_proj, Y_proj, W_proj):
 
     plt.tight_layout()
     plt.show()
+
+from colorist import red
+
+def print_matrix(matrix, name="Matrix"):
+    """✅ 仅 0 变成红色，其他数值默认"""
+    print(f"{name}:")
+
+    for row in matrix:
+        colored_row = [
+            red(f"{value:+.2f}") if abs(value) < 1e-10 else f"{value:+.2f}"
+            for value in row
+        ]
+        print(" ".join(colored_row))
+    print()
