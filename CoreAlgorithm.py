@@ -61,64 +61,191 @@ def cca(X, Y, n_components):
     
     return X_proj, Y_proj, A, B, corrs
 
-def gcca(datasets, n_components=50, tol=1e-6, max_iter=2000):
-    num_views = len(datasets)
-    N = datasets[0].shape[0]
+import numpy as np
+import time
+import tracemalloc
+import sys
 
-    centered_datasets = [X - np.mean(X, axis=0) for X in datasets]
-    A_matrices = [np.random.randn(X.shape[1], n_components) for X in datasets]
-    G = np.random.randn(N, n_components)
+def gcca(datasets, k, max_iter=1000, tol=1e-6):
+    """
+    Standard GCCA (Residual Minimization) with Time & Memory Profiling.
 
-    norms = []
+    Parameters:
+        datasets (list of np.ndarray): List of datasets, each of shape (N, d_i).
+        k (int): Number of canonical components.
+        max_iter (int): Maximum number of iterations.
+        tol (float): Convergence tolerance.
 
-    # Start timing and memory measurement
+    Returns:
+        projections (list of np.ndarray): Projected datasets.
+        A_matrices (list of np.ndarray): Transformation matrices.
+        G (np.ndarray): Common representation.
+        total_time (float): Total execution time in seconds.
+        max_memory (float): Peak memory usage in MB.
+    """
+    # Input validation
+    if not all(X.shape[0] == datasets[0].shape[0] for X in datasets):
+        raise ValueError("All datasets must have the same number of samples (N).")
+
+    I = len(datasets)  # Number of datasets
+    N = datasets[0].shape[0]  # Number of samples
+
+    # Initialize A_matrices and G
+    A_matrices = [np.random.randn(X.shape[1], k) for X in datasets]
+    G = np.random.randn(N, k)
+
+    # Start memory and time tracing
     tracemalloc.start()
-    start_time = time.process_time()  # Only measure process time, excluding external influences
-
+    start_time = time.time()
+    print("\n")
     for iteration in range(max_iter):
-        prev_G = G.copy()
+        G_old = G.copy()
 
-        # Update A_i
-        for i in range(num_views):
-            X_i = centered_datasets[i]
-            A_matrices[i] = np.linalg.pinv(X_i) @ G
+        # Update A_matrices
+        for i in range(I):
+            X = datasets[i]
+            A_matrices[i] = np.linalg.lstsq(X, G, rcond=None)[0]
 
         # Update G
-        sum_matrices = sum(X @ A for X, A in zip(centered_datasets, A_matrices))
-        G = sum_matrices / num_views
+        G = np.mean([X @ A for X, A in zip(datasets, A_matrices)], axis=0)
 
-        # Calculate the change in G
-        norm_diff = np.linalg.norm(G - prev_G)
-        norms.append(norm_diff)
+        # Calculate convergence
+        convergence = np.linalg.norm(G - G_old, ord='fro')
 
-        # Calculate progress and display it
+        # Progress display
         progress = (iteration + 1) / max_iter * 100
-        sys.stdout.write(f"\rIteration {iteration+1}/{max_iter} - Progress: {progress:.2f}% - ΔG: {norm_diff:.6e}")
+        sys.stdout.write(
+            f"\rGCCA Iteration {iteration + 1}/{max_iter} - Progress: {progress:.2f}% - ΔG: {convergence:.6f}"
+        )
         sys.stdout.flush()
 
-        if norm_diff < tol:
-            print(f"\nGCCA converged in {iteration+1} iterations\n")
+        # Check convergence
+        if convergence < tol:
+            print(f"\nConvergence reached in {iteration} iteration!\n")
             break
 
-    # Stop timing and memory measurement
+    # Calculate projections
+    projections = [X @ A for X, A in zip(datasets, A_matrices)]
+
+    # Measure time and memory
+    end_time = time.time()
+    memory_usage = tracemalloc.get_traced_memory()
+    total_time = end_time - start_time
+    max_memory = memory_usage[1] / (1024 * 1024)  # Convert to MB
+
+    # Print final results
+    print(f"\nGCCA Execution Time: {total_time:.4f} seconds")
+    print(f"GCCA Peak Memory Usage: {max_memory:.2f} MB")
+
+    return projections, A_matrices, G, total_time, max_memory
+
+def maxvar_gcca(datasets, k):
+    """
+    MaxVar GCCA Algorithm with Time & Memory Profiling
+    """
+    N = datasets[0].shape[0]
+    I = len(datasets)
+
+    tracemalloc.start()
+    start_time = time.time()
+
+    M = np.zeros((N, N))
+
+    for X in datasets:
+        X_pinv = np.linalg.pinv(X)
+        M += X @ X_pinv  
+
+    U, _, _ = np.linalg.svd(M)
+    G_opt = U[:, :k]  
+
+    A_matrices = [np.linalg.pinv(X) @ G_opt for X in datasets]
+    projections = [X @ A for X, A in zip(datasets, A_matrices)]
+
+    end_time = time.time()
+    memory_usage = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    total_time = end_time - start_time
+    max_memory = memory_usage[1] / (1024 * 1024)  
+
+    print(f"\nMaxVar GCCA Execution Time: {total_time:.4f} seconds")
+    print(f"MaxVar GCCA Peak Memory Usage: {max_memory:.2f} MB")
+
+    return projections, A_matrices, G_opt, total_time, max_memory
+
+def prox_operator(matrix, constraint='none', param=0.1):
+    """
+    Proximal operator for constraints (Non-Negativity / Sparsity)
+    
+    :param matrix: Input matrix
+    :param constraint: 'none' (default), 'nonneg' (Non-Negative), 'sparse' (L1 regularization)
+    :param param: Regularization parameter (for sparsity)
+    :return: Processed matrix
+    """
+    if constraint == 'nonneg':  
+        return np.maximum(0, matrix)  # Enforce non-negativity
+    elif constraint == 'sparse':  
+        return np.sign(matrix) * np.maximum(0, np.abs(matrix) - param)  # Soft thresholding
+    else:
+        return matrix  # No constraint
+
+def altmaxvar_gcca(datasets, k, max_iter=50, inner_iter=10, alpha=0.01, gamma=0.5, tol=1e-6, constraint='none', param=0.1):
+    """
+    AltMaxVar GCCA Algorithm with Time & Memory Profiling
+
+    :param datasets: List of view matrices [X1, X2, ..., XI]
+    :param k: Target shared representation dimension
+    :param max_iter: Outer loop max iterations
+    :param inner_iter: Inner loop iterations for Q_i updates
+    :param alpha: Learning rate for Q_i updates
+    :param gamma: Mixing parameter for G update
+    :param tol: Convergence tolerance
+    :param constraint: Constraint type ('none', 'nonneg', 'sparse')
+    :param param: Regularization parameter for constraints
+    :return: projections, A_matrices, G, execution time, memory usage
+    """
+    I = len(datasets)  # Number of views
+    N = datasets[0].shape[0]  # Number of samples
+
+    # Start tracking time and memory
+    tracemalloc.start()
+    start_time = time.process_time()
+
+    # Initialize projection matrices Q_i and shared representation G
+    A_matrices = [np.random.randn(X.shape[1], k) for X in datasets]
+    G = np.random.randn(N, k)
+
+    for r in range(max_iter):
+        # Step 1: Optimize Q_i iteratively using gradient updates
+        for t in range(inner_iter):
+            for i in range(I):
+                X = datasets[i]
+                gradient = -X.T @ (X @ A_matrices[i] - G) / N  # Compute gradient
+                H = A_matrices[i] - alpha * gradient  # Gradient descent update
+                A_matrices[i] = prox_operator(H, constraint=constraint, param=param)  # Apply constraint
+
+        # Step 2: Update shared representation G
+        R = gamma * sum(X @ A for X, A in zip(datasets, A_matrices)) / I + (1 - gamma) * G
+        U, _, Vt = np.linalg.svd(R, full_matrices=False)
+        G_new = U @ Vt  # SVD-based update
+
+        # Check convergence
+        if np.linalg.norm(G - G_new, ord='fro') < tol:
+            break
+        G = G_new
+
+    # Compute final projections
+    projections = [X @ A for X, A in zip(datasets, A_matrices)]
+
+    # Stop tracking time and memory
     end_time = time.process_time()
-    memory_usage = tracemalloc.get_traced_memory()  # Get memory usage
+    memory_usage = tracemalloc.get_traced_memory()
     tracemalloc.stop()
 
     total_time = end_time - start_time
     max_memory = memory_usage[1] / (1024 * 1024)  # Convert to MB
 
-    print(f"\nGCCA Execution Time: {total_time:.4f} seconds")
-    print(f"GCCA Peak Memory Usage: {max_memory:.2f} MB")
+    print(f"\nAltMaxVar GCCA Execution Time: {total_time:.4f} seconds")
+    print(f"AltMaxVar GCCA Peak Memory Usage: {max_memory:.2f} MB")
 
-    plt.ion
-    # Plot the convergence curve
-    plt.figure(figsize=(6, 4))
-    plt.plot(norms, marker='o')
-    plt.xlabel("Iteration")
-    plt.ylabel("Change in G")
-    plt.title("GCCA Convergence Plot")
-    plt.show()
-
-    projections = [X @ A for X, A in zip(centered_datasets, A_matrices)]
-    return projections, A_matrices, G
+    return projections, A_matrices, G, total_time, max_memory

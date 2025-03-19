@@ -5,27 +5,16 @@ from sklearn.decomposition import PCA
 from util import *
 from CoreAlgorithm import *
 
-# Set random seed
-np.random.seed(42)
-
 # Set parameters
 N = 1000  # Sample size
 d1, d2 = 200, 200  # Feature dimensions (already reduced)
 k = 100  # Shared latent factor dimension
 noise_std = 1  # noise cofactor
 outliers_noise_scale = -1 # active 30% outliers and scale is based on data enery
+
 # Generate synthetic data (X, Y)
 datasets = generate_synthetic_gcca_data(N=N, I=2, d_list=[d1,d2], k=k, noise_std=noise_std, outliers_noise_scale=outliers_noise_scale)
 X, Y = datasets
-
-
-# # print matrix
-# print("X:\n")
-# np.savetxt(sys.stdout, X, fmt="%.4f", delimiter="\t")
-# print("\n\n Y:\n")
-# np.savetxt(sys.stdout, Y, fmt="%.4f", delimiter="\t")
-
-
 
 # Generate unrelated data Y1 (random noise)
 Y1 = np.random.randn(N, d2)  # As completely unrelated data
