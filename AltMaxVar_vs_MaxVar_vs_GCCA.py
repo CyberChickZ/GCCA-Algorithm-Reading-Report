@@ -1,38 +1,38 @@
+from util import generate_sparse_nonnegative_data
+from CoreAlgorithm import gcca, maxvar_gcca, altmaxvar_gcca
 import numpy as np
 import time
 import tracemalloc
 import os
 import matplotlib.pyplot as plt
 from datetime import datetime
-from util import generate_sparse_nonnegative_data
-from CoreAlgorithm import gcca, maxvar_gcca, altmaxvar_gcca
 
-# 创建实验目录
+# Create experiment directory
 exp_root = os.getcwd()
 exp_root = os.path.join(exp_root, "exp")
 if not os.path.exists(exp_root):  
-    os.makedirs(exp_root)  # 适配 Mac OS，确保目录存在
+    os.makedirs(exp_root)  # Adapt to Mac OS, ensure directory exists
 
-# 生成当前时间戳的实验文件夹
+# Generate current timestamp experiment folder
 exp_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 exp_dir = os.path.join(exp_root, exp_time)
-os.makedirs(exp_dir, exist_ok=True)  # 防止创建失败
+os.makedirs(exp_dir, exist_ok=True)  # Prevent creation failure
 
-# Set parameters (扩展数据范围)
-N_list = [20, 100, 500, 2000]  # Sample sizes
-d_list = [120, 600, 1200, 2400]  # Feature dimensions
-k_list = [50, 200, 500, 1000]  # Shared representation dimensions
+# Increase large-scale dataset
+N_list = [20, 100, 500, 2000, 10000, 50000, 100000]  # Sample size
+d_list = [120, 600, 1200, 2400, 5000, 10000, 20000]  # Feature number
+k_list = [50, 200, 500, 1000, 2000, 5000, 10000]  # Shared dimension
 
 noise_std = 1
 outliers_noise_scale = -1
-sparsity_std = 0.01  # 增加稀疏度
-nonneg = True  # 只测试非负数据
-result_in_dense = True  # 确保数据格式为 numpy 数组
+sparsity_std = 0.01  # Increase sparsity
+nonneg = True  # Only test non-negative data
+result_in_dense = True  # Ensure data format is numpy array
 
-# 只测试 'nonneg' 和 'sparse'
-constraints = ['nonneg', 'sparse']
+# Only test 'nonneg' and 'sparse'
+constraints = ['nonneg', 'sparse', 'both']
 
-# 存储实验结果
+# Store experiment results
 results = {"GCCA": {"time": [], "memory": []},
            "MaxVar GCCA": {"time": [], "memory": []},
            "AltMaxVar GCCA": {"time": [], "memory": []}}
@@ -42,7 +42,7 @@ print("\n================= GCCA vs MaxVar vs AltMaxVar GCCA =================\n"
 for i, N in enumerate(N_list):
     print(f"\n[ Running for Sample Size N={N}, Feature Dim d={d_list[i]}, Shared k={k_list[i]} ]")
     
-    # 生成数据
+    # Generate data
     datasets = generate_sparse_nonnegative_data(
         N=N, I=3, d_list=[d_list[i], d_list[i], d_list[i]], k=k_list[i],
         noise_std=noise_std, sparsity_std=sparsity_std, 
@@ -72,10 +72,10 @@ for i, N in enumerate(N_list):
         results["AltMaxVar GCCA"]["memory"].append(mem_altmaxvar)
         np.save(os.path.join(exp_dir, f"AltMaxVar_{constraint}_G_N{N}.npy"), G_altmaxvar)
 
-    # ===== 清晰的对比输出 =====
+    # ===== Clear comparison output =====
     print("\n================= Performance Comparison =================")
 
-    # 表头
+    # Table header
     header = "| {:^22} | {:^22} | {:^22} |".format("Method", "Execution Time (sec)", "Memory Usage (MB)")
     separator = "-" * len(header)
 
@@ -84,13 +84,13 @@ for i, N in enumerate(N_list):
     print(header)
     print(separator)
 
-    # GCCA 结果
+    # GCCA result
     print("| {:<22} | {:>20.4f} | {:>20.2f} |".format("GCCA", time_gcca, mem_gcca))
 
-    # MaxVar GCCA 结果
+    # MaxVar GCCA result
     print("| {:<22} | {:>20.4f} | {:>20.2f} |".format("MaxVar GCCA", time_maxvar, mem_maxvar))
 
-    # AltMaxVar GCCA 结果
+    # AltMaxVar GCCA result
     for j, constraint in enumerate(constraints):
         print("| {:<22} | {:>20.4f} | {:>20.2f} |".format(
             f"AltMaxVar ({constraint})", 
@@ -100,7 +100,7 @@ for i, N in enumerate(N_list):
 
     print(separator)
 
-# ====== 计算效率（时间 & 内存 vs. 数据规模）图表 ======
+# ====== Execution efficiency (time & memory vs. data scale) chart ======
 plt.figure(figsize=(8, 5))
 for method in results:
     plt.plot(N_list, results[method]["time"], label=f"{method} - Time", marker="o", linestyle="solid")
@@ -126,3 +126,4 @@ plt.show(block=False)
 plt.pause(0.1)
 
 print(f"\nAll experiment results saved in: {exp_dir}\n")
+

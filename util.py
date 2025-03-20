@@ -310,17 +310,3 @@ def plot_gcca_results(G, X_proj, Y_proj, W_proj):
 
     plt.tight_layout()
     plt.show()
-
-from colorist import red
-
-def print_matrix(matrix, name="Matrix"):
-    """ Only 0 turns red, other numbers remain default """
-    print(f"{name}:")
-
-    for row in matrix:
-        colored_row = [
-            red(f"{value:+.2f}") if abs(value) < 1e-10 else f"{value:+.2f}"
-            for value in row
-        ]
-        print(" ".join(colored_row))
-    print()

@@ -3,6 +3,191 @@ import matplotlib.pyplot as plt
 import sys
 import time
 import tracemalloc  # Measure memory usage
+import tensorflow as tf  # GPU acceleration
+import torch.nn.functional as F
+import GPUtil
+
+def measure_memory_usage():
+    """
+    Measure peak memory usage of both CPU and GPU.
+    """
+    peak_cpu_memory = tracemalloc.get_traced_memory()[1] / (1024 * 1024)  # Convert to MB
+    peak_gpu_memory = max([gpu.memoryUsed for gpu in GPUtil.getGPUs()], default=0)  # MB
+    return peak_cpu_memory + peak_gpu_memory
+
+def gcca_gpu(datasets, k, max_iter=1000, tol=1e-4):
+    """
+    Standard GCCA (Residual Minimization) with TensorFlow GPU acceleration.
+    """
+    I = len(datasets)
+    N = datasets[0].shape[0]
+
+    # Convert datasets to TensorFlow tensors
+    datasets_tf = [tf.convert_to_tensor(X, dtype=tf.float32) for X in datasets]
+
+    # Initialize A_matrices and G
+    A_matrices = [tf.Variable(tf.random.normal([X.shape[1], k], dtype=tf.float32)) for X in datasets_tf]
+    G = tf.Variable(tf.random.normal([N, k], dtype=tf.float32))
+
+    # Start memory and time tracking
+    tracemalloc.start()
+    gpu_initial_mem = max([gpu.memoryUsed for gpu in GPUtil.getGPUs()], default=0)  # Record initial GPU memory
+    start_time = time.time()
+
+    for iteration in range(max_iter):
+        G_old = tf.identity(G)
+
+        # Update A_matrices
+        for i in range(I):
+            X = datasets_tf[i]
+            A_matrices[i].assign(tf.linalg.lstsq(X, G, l2_regularizer=1e-6))
+
+        # Update G
+        G.assign(tf.reduce_mean([tf.matmul(X, A) for X, A in zip(datasets_tf, A_matrices)], axis=0))
+
+        # Calculate Frobenius norm change (only latest value)
+        delta_G = tf.norm(G - G_old, ord='euclidean', axis=[-2, -1]).numpy()
+
+        # Print progress & latest ΔG (overwriting the same line)
+        progress = (iteration + 1) / max_iter * 100
+        sys.stdout.write(
+            f"\r[GCCA Iteration {iteration+1}/{max_iter}] Progress: {progress:.2f}% | ΔG: {delta_G:.6e}".ljust(120)
+        )
+        sys.stdout.flush()
+
+        # Convergence check
+        if delta_G < tol:
+            print(f"\nConverged in {iteration} iterations.\n")
+            break
+
+    # Get final CPU and GPU memory
+    peak_cpu_memory = tracemalloc.get_traced_memory()[1] / (1024 * 1024)  # MB
+    peak_gpu_memory = max([gpu.memoryUsed for gpu in GPUtil.getGPUs()], default=0) - gpu_initial_mem  # Calculate GPU increment
+    tracemalloc.stop()
+
+    total_memory = peak_cpu_memory + peak_gpu_memory
+    total_time = time.time() - start_time
+
+    print(f"\nGCCA_GPU Execution Time: {total_time:.4f} sec")
+    print(f"GCCA_GPU Peak Memory Usage: {total_memory:.2f} MB (CPU: {peak_cpu_memory:.2f} MB, GPU: {peak_gpu_memory:.2f} MB)")
+
+    return [tf.matmul(X, A).numpy() for X, A in zip(datasets_tf, A_matrices)], [A.numpy() for A in A_matrices], G.numpy(), total_time, total_memory
+
+def maxvar_gcca_gpu(datasets, k):
+    """
+    MaxVar GCCA Algorithm with TensorFlow GPU acceleration.
+    """
+    N = datasets[0].shape[0]
+    I = len(datasets)
+
+    # Convert datasets to TensorFlow tensors
+    datasets_tf = [tf.convert_to_tensor(X, dtype=tf.float32) for X in datasets]
+
+    # Start memory and time tracking
+    tracemalloc.start()
+    gpu_initial_mem = max([gpu.memoryUsed for gpu in GPUtil.getGPUs()], default=0)  # Record initial GPU memory
+    start_time = time.time()
+
+    M = tf.zeros([N, N], dtype=tf.float32)
+
+    for X in datasets_tf:
+        X_pinv = tf.linalg.pinv(X)
+        M += tf.matmul(X, X_pinv)
+
+    # Eigenvalue decomposition
+    S, U, V = tf.linalg.svd(M)
+    G_opt = U[:, :k]
+
+    # Compute A_matrices
+    A_matrices = [tf.matmul(tf.linalg.pinv(X), G_opt) for X in datasets_tf]
+
+    # Get final CPU and GPU memory
+    peak_cpu_memory = tracemalloc.get_traced_memory()[1] / (1024 * 1024)  # MB
+    peak_gpu_memory = max([gpu.memoryUsed for gpu in GPUtil.getGPUs()], default=0) - gpu_initial_mem  # Calculate GPU increment
+    tracemalloc.stop()
+
+    total_memory = peak_cpu_memory + peak_gpu_memory
+    total_time = time.time() - start_time
+
+    print(f"\nMaxVar_GCCA_GPU Execution Time: {total_time:.4f} sec")
+    print(f"MaxVar_GCCA_GPU Peak Memory Usage: {total_memory:.2f} MB (CPU: {peak_cpu_memory:.2f} MB, GPU: {peak_gpu_memory:.2f} MB)")
+
+    return [tf.matmul(X, A).numpy() for X, A in zip(datasets_tf, A_matrices)], [A.numpy() for A in A_matrices], G_opt.numpy(), total_time, total_memory
+
+def prox_operator(matrix, constraint='none', param=0.1):
+    """
+    Proximal operator for constraints (Non-Negativity / Sparsity)
+    """
+    if constraint == 'nonneg':
+        return tf.maximum(0, matrix)
+    elif constraint == 'sparse':
+        return tf.sign(matrix) * tf.maximum(0, tf.abs(matrix) - param)
+    elif constraint == 'both':
+        nonneg = tf.maximum(0, matrix)
+        return tf.sign(nonneg) * tf.maximum(0, tf.abs(nonneg) - param)
+    return matrix
+
+def altmaxvar_gcca_gpu(datasets, k, max_iter=50, inner_iter=10, alpha=0.01, gamma=0.5, tol=1e-6, constraint='none', param=0.1):
+    """
+    Alternating MaxVar GCCA with TensorFlow GPU acceleration.
+    """
+    I = len(datasets)
+    N = datasets[0].shape[0]
+
+    # Convert datasets to TensorFlow tensors
+    datasets_tf = [tf.convert_to_tensor(X, dtype=tf.float32) for X in datasets]
+
+    # Start memory and time tracking
+    tracemalloc.start()
+    gpu_initial_mem = max([gpu.memoryUsed for gpu in GPUtil.getGPUs()], default=0)  # Record initial GPU memory
+    start_time = time.time()
+
+    # Initialize A_matrices and G
+    A_matrices = [tf.Variable(tf.random.normal([X.shape[1], k], dtype=tf.float32)) for X in datasets_tf]
+    G = tf.Variable(tf.random.normal([N, k], dtype=tf.float32))
+
+    for r in range(max_iter):
+        # Update A_matrices
+        for i in range(I):
+            X = datasets_tf[i]
+            gradient = -tf.matmul(tf.transpose(X), tf.matmul(X, A_matrices[i]) - G) / N
+            H = A_matrices[i] - alpha * gradient
+            A_matrices[i].assign(prox_operator(H, constraint=constraint, param=param))
+
+        # Update G
+        R = gamma * sum(tf.matmul(X, A) for X, A in zip(datasets_tf, A_matrices)) / I + (1 - gamma) * G
+        S, U, V = tf.linalg.svd(R)
+        G_new = tf.matmul(U, tf.transpose(V))
+
+        # Calculate Frobenius norm change (only latest value)
+        delta_G = tf.norm(G - G_new, ord='euclidean', axis=[-2, -1]).numpy()
+
+        # Print progress & latest ΔG (overwriting the same line)
+        progress = (r + 1) / max_iter * 100
+        sys.stdout.write(
+            f"\r[AltMaxVar Iter {r+1}/{max_iter}] Progress: {progress:.2f}% | ΔG: {delta_G:.6e}".ljust(120)
+        )
+        sys.stdout.flush()
+
+        # Convergence check
+        if delta_G < tol:
+            print(f"\nConverged in {r} iterations.\n")
+            G.assign(G_new)  # Ensure G is assigned
+            break
+        G.assign(G_new)
+
+    # Get final CPU and GPU memory
+    peak_cpu_memory = tracemalloc.get_traced_memory()[1] / (1024 * 1024)  # MB
+    peak_gpu_memory = max([gpu.memoryUsed for gpu in GPUtil.getGPUs()], default=0) - gpu_initial_mem  # Calculate GPU increment
+    tracemalloc.stop()
+
+    total_memory = peak_cpu_memory + peak_gpu_memory
+    total_time = time.time() - start_time
+
+    print(f"\nAltMaxVar_GCCA_GPU Execution Time: {total_time:.4f} sec")
+    print(f"AltMaxVar_GCCA_GPU Peak Memory Usage: {total_memory:.2f} MB (CPU: {peak_cpu_memory:.2f} MB, GPU: {peak_gpu_memory:.2f} MB)")
+
+    return [tf.matmul(X, A).numpy() for X, A in zip(datasets_tf, A_matrices)], [A.numpy() for A in A_matrices], G.numpy(), total_time, total_memory
 
 def cca(X, Y, n_components):
     """
@@ -61,12 +246,7 @@ def cca(X, Y, n_components):
     
     return X_proj, Y_proj, A, B, corrs
 
-import numpy as np
-import time
-import tracemalloc
-import sys
-
-def gcca(datasets, k, max_iter=1000, tol=1e-6):
+def gcca(datasets, k, max_iter=10000, tol=1e-4):
     """
     Standard GCCA (Residual Minimization) with Time & Memory Profiling.
 
@@ -186,6 +366,9 @@ def prox_operator(matrix, constraint='none', param=0.1):
         return np.maximum(0, matrix)  # Enforce non-negativity
     elif constraint == 'sparse':  
         return np.sign(matrix) * np.maximum(0, np.abs(matrix) - param)  # Soft thresholding
+    elif constraint == 'both':
+        nonneg = np.maximum(0, matrix)
+        return np.sign(nonneg) * np.maximum(0, np.abs(nonneg) - param)  # Soft thresholding
     else:
         return matrix  # No constraint
 
