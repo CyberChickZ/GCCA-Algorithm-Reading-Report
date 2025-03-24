@@ -9,4 +9,5 @@ __pycache__/
 !__pycache__/*.py  # 确保 Py 文件仍被追踪
 
 # 忽略 datasets 目录
-datasets/
+!*.npz
+!word_to_id_shared.json

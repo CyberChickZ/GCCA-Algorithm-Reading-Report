@@ -20,7 +20,7 @@ The main goal is to **understand, implement, and experiment** with the **MaxVar-
 
 ## 🛠️ Project Structure
 
-```plaintext
+<!-- ```plaintext
 📂 GCCA-Algorithm-Reading-Report
 │── 📂 datasets/           # PMI-based multilingual dataset (ignored in .gitignore)
 │── 📂 src/                # Implementation of MaxVar-GCCA
@@ -33,7 +33,7 @@ The main goal is to **understand, implement, and experiment** with the **MaxVar-
 │── .gitignore            # Ignore non-relevant files (e.g., datasets, cache)
 │── README.md             # Project documentation (this file)
 │── requirements.txt      # Dependencies for running the experiments
-```
+``` -->
 
 ## 🔥 Experiments & Findings
 

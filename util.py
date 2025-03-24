@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import scipy.sparse as sp
 from sklearn.decomposition import PCA
 import sys
+from scipy.sparse import csr_matrix, save_npz
+import tensorflow as tf
 
 def load_word_vectors(filepath, max_words=20000, expected_dim=300):
     """
@@ -310,3 +312,18 @@ def plot_gcca_results(G, X_proj, Y_proj, W_proj):
 
     plt.tight_layout()
     plt.show()
+
+def load_and_preprocess_pmi(file_path, target_dim=300):
+    """
+    Load sparse PMI matrix, convert to dense, and apply Truncated SVD for dimensionality reduction.
+    """
+    print(f"Loading {file_path}...")
+    X_sparse = load_npz(file_path)
+    print(f"Original Shape: {X_sparse.shape}")
+
+    svd = TruncatedSVD(n_components=target_dim, random_state=42)
+    X_reduced = svd.fit_transform(X_sparse)
+
+    print(f"Reduced Shape: {X_reduced.shape}\n")
+    return tf.convert_to_tensor(X_reduced, dtype=tf.float32)
+    
