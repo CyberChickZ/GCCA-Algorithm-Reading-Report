@@ -92,15 +92,3 @@ jupyter notebook
 ## 🏆 Acknowledgments
 Thanks to **Xiao Fu, Kejun Huang, and co-authors** for their research work on GCCA. This project is my effort to better understand and reproduce their findings.
 
----
-
-### **README 关键点**
-✅ **清晰介绍**：研究论文 + 代码实现  
-✅ **项目结构**：标明 `datasets/`, `src/`, `notebooks/` 目录用途  
-✅ **实验重点**：解释 CCA, GCCA, MaxVar-GCCA 复现  
-✅ **使用指南**：如何运行代码 & 进行实验  
-✅ **未来工作**：可以扩展的研究方向  
-
----
-
-
